@@ -3,6 +3,7 @@ package com.linuxraccoon.raccoonradio
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi // <-- ADDED IMPORT
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -45,6 +46,7 @@ import kotlinx.coroutines.launch
  * chevron at the top — all of which just hide this screen; playback keeps
  * running underneath via the existing mini player.
  */
+@OptIn(ExperimentalFoundationApi::class) // <-- ADDED ANNOTATION
 @Composable
 fun NowPlayingScreen(
     station: RadioStation,
