@@ -129,6 +129,9 @@ class MainActivity : ComponentActivity(), coil.ImageLoaderFactory {
                 var stationToEdit by remember { mutableStateOf<RadioStation?>(null) }
                 var currentStation by remember { mutableStateOf<RadioStation?>(null) }
                 var secondsListened by remember { mutableIntStateOf(0) }
+                var showNowPlaying by remember { mutableStateOf(false) }
+                var sleepTimerMinutes by remember { mutableIntStateOf(0) }
+                var showTimerDialog by remember { mutableStateOf(false) }
 
                 val playbackStats by radioPlayer.playbackInfo.collectAsState()
                 val currentTitle by radioPlayer.streamTitle.collectAsState()
@@ -218,6 +221,37 @@ class MainActivity : ComponentActivity(), coil.ImageLoaderFactory {
                     }
                 }
 
+                // Shared by both the mini player and the full-screen now-playing
+                // view, so there's exactly one sleep timer, not two independent ones.
+                val stopPlayback: () -> Unit = {
+                    radioPlayer.stop()
+                    currentStation = null
+                    showNowPlaying = false
+                    sleepTimerMinutes = 0
+                }
+
+                LaunchedEffect(sleepTimerMinutes) {
+                    if (sleepTimerMinutes > 0) {
+                        var remainingTime = sleepTimerMinutes
+                        while (remainingTime > 0) {
+                            delay(60000)
+                            remainingTime--
+                            sleepTimerMinutes = remainingTime
+                        }
+                        stopPlayback()
+                    }
+                }
+
+                if (showTimerDialog) {
+                    TimerInputDialog(
+                        onDismiss = { showTimerDialog = false },
+                        onConfirm = { minutes ->
+                            sleepTimerMinutes = minutes
+                            showTimerDialog = false
+                        }
+                    )
+                }
+
                 if (showAddDialog || stationToEdit != null) {
                     StationDialog(
                         initialStation = stationToEdit,
@@ -275,7 +309,9 @@ class MainActivity : ComponentActivity(), coil.ImageLoaderFactory {
                                     streamTitle = displayTitle,
                                     artUrl = displayArtUrl,
                                     timer = formatTime(secondsListened),
-                                    onStop = { radioPlayer.stop(); currentStation = null }
+                                    sleepTimerMinutes = sleepTimerMinutes,
+                                    onSetTimerClick = { showTimerDialog = true },
+                                    onStop = stopPlayback
                                 )
                             }
                             NavigationBar(
@@ -306,6 +342,7 @@ class MainActivity : ComponentActivity(), coil.ImageLoaderFactory {
                                 onStationSelected = { station ->
                                     currentStation = station
                                     radioPlayer.play(station)
+                                    showNowPlaying = true
                                 },
                                 onStationEditRequested = { station ->
                                     stationToEdit = station
@@ -325,6 +362,20 @@ class MainActivity : ComponentActivity(), coil.ImageLoaderFactory {
                             )
                         }
                     }
+                }
+
+                if (currentStation != null && showNowPlaying) {
+                    NowPlayingScreen(
+                        station = currentStation!!,
+                        streamTitle = displayTitle,
+                        artUrl = displayArtUrl,
+                        stats = playbackStats,
+                        timer = formatTime(secondsListened),
+                        sleepTimerMinutes = sleepTimerMinutes,
+                        onSetTimerClick = { showTimerDialog = true },
+                        onStop = stopPlayback,
+                        onDismiss = { showNowPlaying = false }
+                    )
                 }
             }
         }
@@ -471,35 +522,13 @@ fun BottomPlayerBar(
     streamTitle: String,
     artUrl: String,
     timer: String,
+    sleepTimerMinutes: Int,
+    onSetTimerClick: () -> Unit,
     onStop: () -> Unit
 ) {
     var isExpanded by remember { mutableStateOf(false) }
-    var sleepTimerMinutes by remember { mutableIntStateOf(0) }
-    var showTimerDialog by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
-
-    LaunchedEffect(sleepTimerMinutes) {
-        if (sleepTimerMinutes > 0) {
-            var remainingTime = sleepTimerMinutes
-            while (remainingTime > 0) {
-                delay(60000)
-                remainingTime--
-                sleepTimerMinutes = remainingTime
-            }
-            onStop()
-        }
-    }
-
-    if (showTimerDialog) {
-        TimerInputDialog(
-            onDismiss = { showTimerDialog = false },
-            onConfirm = { minutes ->
-                sleepTimerMinutes = minutes
-                showTimerDialog = false
-            }
-        )
-    }
 
     Surface(
         modifier = Modifier
@@ -576,7 +605,7 @@ fun BottomPlayerBar(
                     }
 
                     IconButton(
-                        onClick = { showTimerDialog = true },
+                        onClick = onSetTimerClick,
                         modifier = Modifier.background(MaterialTheme.colorScheme.primaryContainer, CircleShape)
                     ) {
                         Icon(
