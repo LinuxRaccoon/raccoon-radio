@@ -10,8 +10,19 @@ class WakeTimerReceiver : BroadcastReceiver() {
         if (stationId == -1) return
 
         val station = StationStore.loadStations(context).find { it.id == stationId } ?: return
-        RemotePlayback.playStation(context, station)
-        StationStore.clearWakeTimer(context)
+
+        // Connecting a MediaController is asynchronous -- the actual play()
+        // call happens later, inside a callback. A plain onReceive() is
+        // expected to return almost immediately, and once it does, Android
+        // can freeze or kill this process before that callback ever runs
+        // (especially when the app was fully closed). goAsync() tells the
+        // system to keep this process alive until pendingResult.finish() is
+        // called, giving the callback time to actually complete.
+        val pendingResult = goAsync()
+        RemotePlayback.playStation(context, station) {
+            StationStore.clearWakeTimer(context)
+            pendingResult.finish()
+        }
     }
 
     companion object {

@@ -36,10 +36,14 @@ class RaccoonRadioWidgetProvider : AppWidgetProvider() {
         val station = StationStore.loadStations(context).find { it.id == stationId } ?: return
         val alreadyPlaying = StationStore.getPlayingStationId(context) == stationId
 
+        // Same async-after-return concern as WakeTimerReceiver: the actual
+        // controller work finishes in a later callback, so hold the process
+        // open with goAsync() until it does.
+        val pendingResult = goAsync()
         if (alreadyPlaying) {
-            RemotePlayback.stopPlayback(context)
+            RemotePlayback.stopPlayback(context) { pendingResult.finish() }
         } else {
-            RemotePlayback.playStation(context, station)
+            RemotePlayback.playStation(context, station) { pendingResult.finish() }
         }
     }
 

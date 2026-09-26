@@ -9,6 +9,7 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
+import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 
 /**
@@ -21,7 +22,7 @@ import com.google.common.util.concurrent.MoreExecutors
  */
 @OptIn(UnstableApi::class)
 object RemotePlayback {
-    fun playStation(context: Context, station: RadioStation) {
+    fun playStation(context: Context, station: RadioStation, onComplete: () -> Unit = {}) {
         withController(context) { controller ->
             val mediaItem = MediaItem.Builder()
                 .setUri(station.streamUrl)
@@ -37,18 +38,22 @@ object RemotePlayback {
             controller.play()
             StationStore.setPlayingStationId(context, station.id)
             RaccoonRadioWidgetProvider.refreshAll(context)
+        }.also { future ->
+            future.addListener({ onComplete() }, MoreExecutors.directExecutor())
         }
     }
 
-    fun stopPlayback(context: Context) {
+    fun stopPlayback(context: Context, onComplete: () -> Unit = {}) {
         withController(context) { controller ->
             controller.stop()
             StationStore.setPlayingStationId(context, null)
             RaccoonRadioWidgetProvider.refreshAll(context)
+        }.also { future ->
+            future.addListener({ onComplete() }, MoreExecutors.directExecutor())
         }
     }
 
-    private fun withController(context: Context, action: (MediaController) -> Unit) {
+    private fun withController(context: Context, action: (MediaController) -> Unit): ListenableFuture<MediaController> {
         val appContext = context.applicationContext
         val sessionToken = SessionToken(appContext, ComponentName(appContext, PlaybackService::class.java))
         val controllerFuture = MediaController.Builder(appContext, sessionToken).buildAsync()
@@ -58,5 +63,7 @@ object RemotePlayback {
             action(controller)
             controller.release()
         }, MoreExecutors.directExecutor())
+
+        return controllerFuture
     }
 }
