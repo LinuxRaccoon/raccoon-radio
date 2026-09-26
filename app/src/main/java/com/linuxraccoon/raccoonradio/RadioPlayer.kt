@@ -2,6 +2,7 @@ package com.linuxraccoon.raccoonradio
 
 import android.content.ComponentName
 import android.content.Context
+import android.net.Uri
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -15,10 +16,16 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
 
 class RadioPlayer @OptIn(UnstableApi::class) constructor
     (context: Context) {
+    private val appContext = context.applicationContext
     private var controller: MediaController? = null
+
+    // Needed so the live-metadata pusher below has a station name/fallback
+    // icon to work with -- it only has the poller's output otherwise.
+    private var activeStation: RadioStation? = null
 
     private val _playbackInfo = MutableStateFlow("Stopped")
     val playbackInfo: StateFlow<String> = _playbackInfo
@@ -39,6 +46,12 @@ class RadioPlayer @OptIn(UnstableApi::class) constructor
     // metadataUrl, when one is set. Null when the current station has no
     // metadata endpoint, or between polls before the first result arrives.
     val trackMetadata: StateFlow<TrackMetadata?> = metadataPoller.metadata
+
+    init {
+        playerScope.launch {
+            trackMetadata.collect { meta -> pushLiveMetadataToSession(meta) }
+        }
+    }
 
     val isPlayingActive: Boolean
         get() = controller?.let {
@@ -118,6 +131,39 @@ class RadioPlayer @OptIn(UnstableApi::class) constructor
         })
     }
 
+    // Pushes live track title/artist/art into the MediaSession so the system
+    // notification, lock screen, and any connected car display pick it up --
+    // same as the in-app now-playing screen. Only touches anything when the
+    // poller actually has data (i.e. the station has a metadataUrl); when it
+    // doesn't, this is a no-op and Media3's own ICY-based title keeps working
+    // exactly as before.
+    @OptIn(UnstableApi::class)
+    private fun pushLiveMetadataToSession(meta: TrackMetadata?) {
+        val station = activeStation ?: return
+        val ctrl = controller ?: return
+        val currentItem = ctrl.currentMediaItem ?: return
+
+        val metaTitle = meta?.title?.takeIf { it.isNotBlank() }
+        val metaArtist = meta?.artist?.takeIf { it.isNotBlank() }
+        val trackText = when {
+            metaArtist != null && metaTitle != null && metaArtist != metaTitle -> "$metaArtist - $metaTitle"
+            metaTitle != null -> metaTitle
+            metaArtist != null -> metaArtist
+            else -> return // nothing usable yet -- leave ICY metadata alone
+        }
+
+        val artUri = meta?.artUrl?.takeIf { it.isNotBlank() }
+            ?: station.imageUrl.takeIf { it.isNotBlank() }
+
+        val updatedMetadata = MediaMetadata.Builder()
+            .setArtist(station.name)
+            .setTitle(trackText)
+            .apply { artUri?.let { setArtworkUri(Uri.parse(it)) } }
+            .build()
+
+        ctrl.replaceMediaItem(0, currentItem.buildUpon().setMediaMetadata(updatedMetadata).build())
+    }
+
     fun getActiveStationFromSession(): RadioStation? {
         val player = controller ?: return null
         if (player.playbackState == Player.STATE_READY || player.playbackState == Player.STATE_BUFFERING) {
@@ -140,12 +186,16 @@ class RadioPlayer @OptIn(UnstableApi::class) constructor
     }
 
     fun play(station: RadioStation) {
+        activeStation = station
+        StationStore.setPlayingStationId(appContext, station.id)
+        RaccoonRadioWidgetProvider.refreshAll(appContext)
+
         val mediaItem = MediaItem.Builder()
             .setUri(station.streamUrl)
             .setMediaMetadata(
                 MediaMetadata.Builder()
                     .setArtist(station.name)
-                    .setArtworkUri(android.net.Uri.parse(station.imageUrl))
+                    .setArtworkUri(Uri.parse(station.imageUrl))
                     .build()
             )
             .build()
@@ -160,6 +210,9 @@ class RadioPlayer @OptIn(UnstableApi::class) constructor
     fun stop() {
         controller?.stop()
         _streamTitle.value = ""
+        activeStation = null
+        StationStore.setPlayingStationId(appContext, null)
+        RaccoonRadioWidgetProvider.refreshAll(appContext)
         metadataPoller.stop()
     }
 }

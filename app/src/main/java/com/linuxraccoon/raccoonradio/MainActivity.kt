@@ -2,6 +2,9 @@ package com.linuxraccoon.raccoonradio
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+import java.util.Calendar
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -40,8 +43,6 @@ import coil.compose.AsyncImage
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import coil.decode.SvgDecoder
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.delay
 import androidx.core.content.edit
 import kotlinx.coroutines.launch
@@ -77,7 +78,6 @@ private val DarkGreenScheme = darkColorScheme(
 
 class MainActivity : ComponentActivity(), coil.ImageLoaderFactory {
     private lateinit var radioPlayer: RadioPlayer
-    private val gson = Gson()
 
     private var pendingUriHandler = mutableStateOf<RadioStation?>(null)
 
@@ -132,6 +132,8 @@ class MainActivity : ComponentActivity(), coil.ImageLoaderFactory {
                 var showNowPlaying by remember { mutableStateOf(false) }
                 var sleepTimerMinutes by remember { mutableIntStateOf(0) }
                 var showTimerDialog by remember { mutableStateOf(false) }
+                var showWakeTimerDialog by remember { mutableStateOf(false) }
+                var wakeTimerLabel by remember { mutableStateOf(formatWakeTimerLabel(context, stations)) }
 
                 val playbackStats by radioPlayer.playbackInfo.collectAsState()
                 val currentTitle by radioPlayer.streamTitle.collectAsState()
@@ -252,6 +254,43 @@ class MainActivity : ComponentActivity(), coil.ImageLoaderFactory {
                     )
                 }
 
+                // Android 12+ requires this be granted via Settings before an exact
+                // alarm can be scheduled; if it's missing, send the person there
+                // instead of silently failing when they try to set a timer.
+                val requestWakeTimer = {
+                    if (WakeTimerScheduler.canScheduleExactAlarms(context)) {
+                        showWakeTimerDialog = true
+                    } else {
+                        context.startActivity(
+                            Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                                data = Uri.parse("package:${context.packageName}")
+                            }
+                        )
+                    }
+                }
+
+                if (showWakeTimerDialog) {
+                    WakeTimerDialog(
+                        stations = stations,
+                        onDismiss = { showWakeTimerDialog = false },
+                        onSchedule = { station, hour, minute ->
+                            val triggerAt = Calendar.getInstance().apply {
+                                set(Calendar.HOUR_OF_DAY, hour)
+                                set(Calendar.MINUTE, minute)
+                                set(Calendar.SECOND, 0)
+                                set(Calendar.MILLISECOND, 0)
+                                // If that time today has already passed, it means tomorrow.
+                                if (timeInMillis <= System.currentTimeMillis()) {
+                                    add(Calendar.DAY_OF_YEAR, 1)
+                                }
+                            }.timeInMillis
+
+                            WakeTimerScheduler.schedule(context, station.id, triggerAt)
+                            wakeTimerLabel = formatWakeTimerLabel(context, stations)
+                        }
+                    )
+                }
+
                 if (showAddDialog || stationToEdit != null) {
                     StationDialog(
                         initialStation = stationToEdit,
@@ -358,7 +397,13 @@ class MainActivity : ComponentActivity(), coil.ImageLoaderFactory {
                                 useDynamicColors = useDynamicColors,
                                 onDynamicColorsChange = { useDynamicColors = it },
                                 onImportM3U = { m3uImportLauncher.launch(arrayOf("*/*")) },
-                                onExportM3U = { m3uExportLauncher.launch("RaccoonRadio_Backup.m3u") }
+                                onExportM3U = { m3uExportLauncher.launch("RaccoonRadio_Backup.m3u") },
+                                wakeTimerLabel = wakeTimerLabel,
+                                onSetWakeTimer = requestWakeTimer,
+                                onCancelWakeTimer = {
+                                    WakeTimerScheduler.cancel(context)
+                                    wakeTimerLabel = null
+                                }
                             )
                         }
                     }
@@ -387,16 +432,15 @@ class MainActivity : ComponentActivity(), coil.ImageLoaderFactory {
         pendingUriHandler.value = UriHandler.handleIncomingIntent(intent)
     }
 
-    private fun saveStations(stations: List<RadioStation>) {
-        val prefs = getSharedPreferences("wave_prefs", Context.MODE_PRIVATE)
-        prefs.edit { putString("stations_list", gson.toJson(stations)) }
-    }
+    private fun saveStations(stations: List<RadioStation>) = StationStore.saveStations(this, stations)
 
-    private fun loadStations(): List<RadioStation> {
-        val prefs = getSharedPreferences("wave_prefs", Context.MODE_PRIVATE)
-        val json = prefs.getString("stations_list", null) ?: return emptyList()
-        val type = object : TypeToken<List<RadioStation>>() {}.type
-        return gson.fromJson(json, type)
+    private fun loadStations(): List<RadioStation> = StationStore.loadStations(this)
+
+    private fun formatWakeTimerLabel(context: Context, stations: List<RadioStation>): String? {
+        val (stationId, triggerAtMillis) = StationStore.getWakeTimer(context) ?: return null
+        val name = stations.find { it.id == stationId }?.name ?: "Unknown station"
+        val cal = Calendar.getInstance().apply { timeInMillis = triggerAtMillis }
+        return "$name at %02d:%02d".format(cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE))
     }
 }
 
@@ -427,7 +471,10 @@ fun SettingsScreen(
     useDynamicColors: Boolean,
     onDynamicColorsChange: (Boolean) -> Unit,
     onImportM3U: () -> Unit,
-    onExportM3U: () -> Unit
+    onExportM3U: () -> Unit,
+    wakeTimerLabel: String?,
+    onSetWakeTimer: () -> Unit,
+    onCancelWakeTimer: () -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -464,6 +511,34 @@ fun SettingsScreen(
                     Column {
                         Text(stringResource(R.string.export_m3u), style = MaterialTheme.typography.titleMedium)
                         Text(stringResource(R.string.export_m3u_sub), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(24.dp))
+
+        Text(text = "Playback", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary)
+        Spacer(Modifier.height(8.dp))
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column {
+                Row(
+                    modifier = Modifier.fillMaxWidth().clickable { onSetWakeTimer() }.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Default.Schedule, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.width(16.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Wake Timer", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            text = wakeTimerLabel ?: "Not set",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (wakeTimerLabel != null) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (wakeTimerLabel != null) {
+                        TextButton(onClick = onCancelWakeTimer) { Text("Cancel") }
                     }
                 }
             }
