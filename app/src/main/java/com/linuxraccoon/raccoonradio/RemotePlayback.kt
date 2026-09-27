@@ -57,9 +57,11 @@ object RemotePlayback {
                 onDone = { success -> finish(success) }
             )
 
+            Log.i(TAG, "Calling setMediaItem/prepare/play on $controller (playbackState=${stateName(controller.playbackState)})")
             controller.setMediaItem(mediaItem)
             controller.prepare()
             controller.play()
+            Log.i(TAG, "play() call returned -- current playbackState=${stateName(controller.playbackState)}, isPlaying=${controller.isPlaying}, playWhenReady=${controller.playWhenReady}")
         }
     }
 
@@ -91,12 +93,23 @@ object RemotePlayback {
         val handler = Handler(Looper.getMainLooper())
 
         val listener = object : Player.Listener {
-            override fun onIsPlayingChanged(isPlaying: Boolean) = check()
-            override fun onPlaybackStateChanged(playbackState: Int) = check()
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                Log.i(TAG, "onIsPlayingChanged: $isPlaying")
+                check()
+            }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                Log.i(TAG, "onPlaybackStateChanged: ${stateName(playbackState)}")
+                check()
+            }
 
             override fun onPlayerError(error: PlaybackException) {
-                Log.e(TAG, "Player error", error)
+                Log.e(TAG, "onPlayerError: ${error.errorCodeName}", error)
                 finish(false)
+            }
+
+            override fun onEvents(player: Player, events: Player.Events) {
+                Log.i(TAG, "onEvents fired, event count=${events.size()}")
             }
 
             fun check() {
@@ -115,7 +128,7 @@ object RemotePlayback {
         controller.addListener(listener)
         handler.postDelayed({
             if (!finished) {
-                Log.w(TAG, "Timed out waiting for playback state to confirm")
+                Log.w(TAG, "Timed out -- final playbackState=${stateName(controller.playbackState)}, isPlaying=${controller.isPlaying}, playWhenReady=${controller.playWhenReady}")
                 listener.finish(false)
             }
         }, CONFIRM_TIMEOUT_MS)
@@ -123,6 +136,14 @@ object RemotePlayback {
         // In case the state is already correct by the time we attach (e.g.
         // stop() on an already-stopped player).
         if (isDone(controller)) listener.finish(true)
+    }
+
+    private fun stateName(state: Int) = when (state) {
+        Player.STATE_IDLE -> "IDLE"
+        Player.STATE_BUFFERING -> "BUFFERING"
+        Player.STATE_READY -> "READY"
+        Player.STATE_ENDED -> "ENDED"
+        else -> "UNKNOWN($state)"
     }
 
     private fun withController(
