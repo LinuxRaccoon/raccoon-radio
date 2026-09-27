@@ -2,11 +2,13 @@ package com.linuxraccoon.raccoonradio
 
 import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import androidx.annotation.OptIn
+import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
@@ -129,6 +131,14 @@ object RemotePlayback {
         action: (MediaController, finish: (Boolean) -> Unit) -> Unit
     ) {
         val appContext = context.applicationContext
+
+        // Binding alone (what MediaController.Builder does) doesn't reliably
+        // start the service from a background context -- explicitly starting
+        // it first is what actually pairs with the exact-alarm/background
+        // exemption Android grants for calling startForegroundService().
+        Log.i(TAG, "Starting PlaybackService...")
+        ContextCompat.startForegroundService(appContext, Intent(appContext, PlaybackService::class.java))
+
         val sessionToken = SessionToken(appContext, ComponentName(appContext, PlaybackService::class.java))
         Log.i(TAG, "Connecting to PlaybackService...")
         val controllerFuture = MediaController.Builder(appContext, sessionToken).buildAsync()
