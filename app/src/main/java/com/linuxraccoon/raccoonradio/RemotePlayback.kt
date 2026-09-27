@@ -57,11 +57,10 @@ object RemotePlayback {
                 onDone = { success -> finish(success) }
             )
 
-            Log.i(TAG, "Calling setMediaItem/prepare/play on $controller (playbackState=${stateName(controller.playbackState)})")
+            Log.i(TAG, "Calling setMediaItem/prepare/play")
             controller.setMediaItem(mediaItem)
             controller.prepare()
             controller.play()
-            Log.i(TAG, "play() call returned -- current playbackState=${stateName(controller.playbackState)}, isPlaying=${controller.isPlaying}, playWhenReady=${controller.playWhenReady}")
         }
     }
 
@@ -93,23 +92,12 @@ object RemotePlayback {
         val handler = Handler(Looper.getMainLooper())
 
         val listener = object : Player.Listener {
-            override fun onIsPlayingChanged(isPlaying: Boolean) {
-                Log.i(TAG, "onIsPlayingChanged: $isPlaying")
-                check()
-            }
-
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                Log.i(TAG, "onPlaybackStateChanged: ${stateName(playbackState)}")
-                check()
-            }
+            override fun onIsPlayingChanged(isPlaying: Boolean) = check()
+            override fun onPlaybackStateChanged(playbackState: Int) = check()
 
             override fun onPlayerError(error: PlaybackException) {
                 Log.e(TAG, "onPlayerError: ${error.errorCodeName}", error)
                 finish(false)
-            }
-
-            override fun onEvents(player: Player, events: Player.Events) {
-                Log.i(TAG, "onEvents fired, event count=${events.size()}")
             }
 
             fun check() {
