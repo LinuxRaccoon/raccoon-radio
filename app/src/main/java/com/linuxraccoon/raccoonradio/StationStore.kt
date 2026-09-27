@@ -17,6 +17,7 @@ object StationStore {
     private const val KEY_PLAYING_ID = "widget_playing_station_id"
     private const val KEY_WAKE_STATION_ID = "wake_timer_station_id"
     private const val KEY_WAKE_TIME = "wake_timer_trigger_at"
+    private const val KEY_CURRENT_ART_URL = "widget_current_art_url"
 
     private val gson = Gson()
 
@@ -72,5 +73,19 @@ object StationStore {
         val stationId = prefs.getInt(KEY_WAKE_STATION_ID, -1)
         val time = prefs.getLong(KEY_WAKE_TIME, -1L)
         return if (stationId != -1 && time != -1L) stationId to time else null
+    }
+
+    // The best-known art URL for whatever's currently playing -- either the
+    // station's static icon (set immediately on play) or, once available, the
+    // live track art from that station's metadataUrl. The widget reads this
+    // to fill its art panel; null means nothing is playing.
+    fun setCurrentArtUrl(context: Context, artUrl: String?) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        prefs.edit { putString(KEY_CURRENT_ART_URL, artUrl) }
+    }
+
+    fun getCurrentArtUrl(context: Context): String? {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        return prefs.getString(KEY_CURRENT_ART_URL, null)
     }
 }

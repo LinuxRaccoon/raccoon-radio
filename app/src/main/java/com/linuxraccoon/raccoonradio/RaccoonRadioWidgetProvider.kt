@@ -6,14 +6,24 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
+import android.util.Log
 import android.view.View
 import android.widget.RemoteViews
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.URL
 
 /**
- * Two-button home-screen widget: one button per station (in station-list
- * order), each toggling that station's playback on tap. Works independently
- * of MainActivity/RadioPlayer, since the widget can be tapped with the app
+ * Home-screen widget: two stacked buttons on the left (one per station, in
+ * station-list order) toggling that station's playback, and an artwork panel
+ * on the right showing whatever's currently playing. Works independently of
+ * MainActivity/RadioPlayer, since the widget can be tapped with the app
  * fully closed -- it talks to the same PlaybackService MediaSession directly.
  */
 class RaccoonRadioWidgetProvider : AppWidgetProvider() {
@@ -50,19 +60,49 @@ class RaccoonRadioWidgetProvider : AppWidgetProvider() {
     companion object {
         const val ACTION_TOGGLE_STATION = "com.linuxraccoon.raccoonradio.WIDGET_TOGGLE_STATION"
         const val EXTRA_STATION_ID = "station_id"
+        private const val TAG = "RaccoonRadioWidget"
+        private const val ART_MAX_DIMENSION_PX = 300
 
         private val BUTTON_IDS = listOf(R.id.widget_button_0, R.id.widget_button_1)
 
-        /** Call this whenever playback starts/stops from anywhere -- app or widget. */
+        /** Call this whenever playback starts/stops or track art changes -- app or widget. */
         fun refreshAll(context: Context) {
             val manager = AppWidgetManager.getInstance(context)
             val ids = manager.getAppWidgetIds(ComponentName(context, RaccoonRadioWidgetProvider::class.java))
             ids.forEach { id -> updateWidget(context, manager, id) }
         }
 
+        /**
+         * Draws the buttons immediately (fast, synchronous, no network), then
+         * -- if there's art to show -- fetches and decodes it on a background
+         * thread and issues a second update once it's ready. Two passes
+         * because RemoteViews has no async image loader of its own; a widget
+         * can only be told "here is a fully-decoded Bitmap".
+         */
         private fun updateWidget(context: Context, manager: AppWidgetManager, widgetId: Int) {
             val stations = StationStore.loadStations(context).take(BUTTON_IDS.size)
             val playingId = StationStore.getPlayingStationId(context)
+            val artUrl = StationStore.getCurrentArtUrl(context)
+
+            val views = buildButtonViews(context, stations, playingId)
+            views.setImageViewResource(R.id.widget_art, R.mipmap.ic_launcher)
+            manager.updateAppWidget(widgetId, views)
+
+            if (artUrl.isNullOrBlank()) return
+
+            CoroutineScope(Dispatchers.IO).launch {
+                val bitmap = downloadAndScaleBitmap(artUrl)
+                if (bitmap == null) return@launch
+
+                withContext(Dispatchers.Main) {
+                    val updatedViews = buildButtonViews(context, stations, playingId)
+                    updatedViews.setImageViewBitmap(R.id.widget_art, bitmap)
+                    manager.updateAppWidget(widgetId, updatedViews)
+                }
+            }
+        }
+
+        private fun buildButtonViews(context: Context, stations: List<RadioStation>, playingId: Int?): RemoteViews {
             val views = RemoteViews(context.packageName, R.layout.widget_raccoon_radio)
 
             BUTTON_IDS.forEachIndexed { index, buttonId ->
@@ -98,7 +138,39 @@ class RaccoonRadioWidgetProvider : AppWidgetProvider() {
                 views.setOnClickPendingIntent(buttonId, pendingIntent)
             }
 
-            manager.updateAppWidget(widgetId, views)
+            return views
+        }
+
+        private fun downloadAndScaleBitmap(urlString: String): Bitmap? {
+            var connection: HttpURLConnection? = null
+            return try {
+                connection = (URL(urlString).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 5000
+                    readTimeout = 5000
+                }
+                val original = connection.inputStream.use { BitmapFactory.decodeStream(it) } ?: return null
+
+                // Widgets are delivered to the launcher over Binder, which has a
+                // small transaction size limit -- downscale so a full-size
+                // album cover never risks a TransactionTooLargeException.
+                val largestSide = maxOf(original.width, original.height)
+                if (largestSide <= ART_MAX_DIMENSION_PX) {
+                    original
+                } else {
+                    val scale = ART_MAX_DIMENSION_PX.toFloat() / largestSide
+                    Bitmap.createScaledBitmap(
+                        original,
+                        (original.width * scale).toInt(),
+                        (original.height * scale).toInt(),
+                        true
+                    )
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to fetch widget art from $urlString", e)
+                null
+            } finally {
+                connection?.disconnect()
+            }
         }
     }
 }

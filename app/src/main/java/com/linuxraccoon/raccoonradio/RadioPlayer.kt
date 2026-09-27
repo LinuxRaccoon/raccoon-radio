@@ -155,6 +155,11 @@ class RadioPlayer @OptIn(UnstableApi::class) constructor
         val artUri = meta?.artUrl?.takeIf { it.isNotBlank() }
             ?: station.imageUrl.takeIf { it.isNotBlank() }
 
+        artUri?.let {
+            StationStore.setCurrentArtUrl(appContext, it)
+            RaccoonRadioWidgetProvider.refreshAll(appContext)
+        }
+
         val updatedMetadata = MediaMetadata.Builder()
             .setArtist(station.name)
             .setTitle(trackText)
@@ -188,6 +193,7 @@ class RadioPlayer @OptIn(UnstableApi::class) constructor
     fun play(station: RadioStation) {
         activeStation = station
         StationStore.setPlayingStationId(appContext, station.id)
+        StationStore.setCurrentArtUrl(appContext, station.imageUrl)
         RaccoonRadioWidgetProvider.refreshAll(appContext)
 
         val mediaItem = MediaItem.Builder()
@@ -212,6 +218,7 @@ class RadioPlayer @OptIn(UnstableApi::class) constructor
         _streamTitle.value = ""
         activeStation = null
         StationStore.setPlayingStationId(appContext, null)
+        StationStore.setCurrentArtUrl(appContext, null)
         RaccoonRadioWidgetProvider.refreshAll(appContext)
         metadataPoller.stop()
     }
