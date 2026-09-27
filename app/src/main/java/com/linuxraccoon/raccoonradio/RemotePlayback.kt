@@ -3,10 +3,14 @@ package com.linuxraccoon.raccoonradio
 import android.content.ComponentName
 import android.content.Context
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -23,9 +27,10 @@ import com.google.common.util.concurrent.MoreExecutors
 @OptIn(UnstableApi::class)
 object RemotePlayback {
     private const val TAG = "RemotePlayback"
+    private const val CONFIRM_TIMEOUT_MS = 8000L
 
     fun playStation(context: Context, station: RadioStation, onComplete: (success: Boolean) -> Unit = {}) {
-        withController(context, onComplete) { controller ->
+        withController(context, onComplete) { controller, finish ->
             val mediaItem = MediaItem.Builder()
                 .setUri(station.streamUrl)
                 .setMediaMetadata(
@@ -35,28 +40,93 @@ object RemotePlayback {
                         .build()
                 )
                 .build()
-            controller.setMediaItem(mediaItem)
-            controller.prepare()
-            controller.play()
+
             StationStore.setPlayingStationId(context, station.id)
             StationStore.setCurrentArtUrl(context, station.imageUrl)
             RaccoonRadioWidgetProvider.refreshAll(context)
+
+            // Wait for the player to actually confirm it's playing before
+            // releasing the controller -- releasing right after play() is
+            // called risks tearing the connection down before that command
+            // is fully dispatched, since it's asynchronous even in-process.
+            waitForConfirmation(
+                controller = controller,
+                isDone = { it.isPlaying },
+                onDone = { success -> finish(success) }
+            )
+
+            controller.setMediaItem(mediaItem)
+            controller.prepare()
+            controller.play()
         }
     }
 
     fun stopPlayback(context: Context, onComplete: (success: Boolean) -> Unit = {}) {
-        withController(context, onComplete) { controller ->
-            controller.stop()
+        withController(context, onComplete) { controller, finish ->
             StationStore.setPlayingStationId(context, null)
             StationStore.setCurrentArtUrl(context, null)
             RaccoonRadioWidgetProvider.refreshAll(context)
+
+            waitForConfirmation(
+                controller = controller,
+                isDone = { !it.isPlaying },
+                onDone = { success -> finish(success) }
+            )
+
+            controller.stop()
         }
+    }
+
+    /**
+     * Attaches a listener that waits for [isDone] to become true (checked on
+     * every relevant player event) or for a player error, then calls [onDone]
+     * exactly once with whether it finished normally. Falls back to timing
+     * out after [CONFIRM_TIMEOUT_MS] so callers relying on goAsync() are
+     * never left hanging indefinitely if the stream never loads.
+     */
+    private fun waitForConfirmation(controller: MediaController, isDone: (Player) -> Boolean, onDone: (Boolean) -> Unit) {
+        var finished = false
+        val handler = Handler(Looper.getMainLooper())
+
+        val listener = object : Player.Listener {
+            override fun onIsPlayingChanged(isPlaying: Boolean) = check()
+            override fun onPlaybackStateChanged(playbackState: Int) = check()
+
+            override fun onPlayerError(error: PlaybackException) {
+                Log.e(TAG, "Player error", error)
+                finish(false)
+            }
+
+            fun check() {
+                if (isDone(controller)) finish(true)
+            }
+
+            fun finish(success: Boolean) {
+                if (finished) return
+                finished = true
+                handler.removeCallbacksAndMessages(null)
+                controller.removeListener(this)
+                onDone(success)
+            }
+        }
+
+        controller.addListener(listener)
+        handler.postDelayed({
+            if (!finished) {
+                Log.w(TAG, "Timed out waiting for playback state to confirm")
+                listener.finish(false)
+            }
+        }, CONFIRM_TIMEOUT_MS)
+
+        // In case the state is already correct by the time we attach (e.g.
+        // stop() on an already-stopped player).
+        if (isDone(controller)) listener.finish(true)
     }
 
     private fun withController(
         context: Context,
         onComplete: (success: Boolean) -> Unit,
-        action: (MediaController) -> Unit
+        action: (MediaController, finish: (Boolean) -> Unit) -> Unit
     ) {
         val appContext = context.applicationContext
         val sessionToken = SessionToken(appContext, ComponentName(appContext, PlaybackService::class.java))
@@ -67,9 +137,11 @@ object RemotePlayback {
             try {
                 val controller = controllerFuture.get()
                 Log.i(TAG, "Connected -- running action")
-                action(controller)
-                controller.release()
-                onComplete(true)
+                action(controller) { success ->
+                    Log.i(TAG, "Confirmed (success=$success) -- releasing controller")
+                    controller.release()
+                    onComplete(success)
+                }
             } catch (e: Exception) {
                 // This is exactly the kind of failure that's invisible without
                 // logging: the controller never connected (service couldn't
