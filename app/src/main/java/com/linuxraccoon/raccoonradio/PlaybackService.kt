@@ -24,7 +24,17 @@ class PlaybackService : MediaSessionService() {
                     .setUsage(C.USAGE_MEDIA)
                     .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
                     .build(),
-                true
+                // false = don't let ExoPlayer auto-manage audio focus. With
+                // this on (the previous setting), ExoPlayer silently set
+                // playWhenReady=false whenever its own focus request failed
+                // or was lost -- which reliably happened when playback was
+                // started from a cold background process (wake timer, widget
+                // with the app killed), even though the stream itself had
+                // buffered successfully. A radio app playing in a vehicle is
+                // reasonably expected to just keep playing rather than
+                // silently going quiet, so we manage this ourselves instead
+                // of leaving it to ExoPlayer's default behaviour.
+                false
             )
         }
 
