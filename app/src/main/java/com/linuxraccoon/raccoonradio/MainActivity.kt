@@ -388,6 +388,21 @@ class MainActivity : ComponentActivity(), coil.ImageLoaderFactory {
                                 },
                                 onStationsReordered = { updatedList ->
                                     stations = updatedList
+                                },
+                                onToggleStar = { station ->
+                                    val currentlyStarred = stations.count { it.starred }
+                                    if (!station.starred && currentlyStarred >= 2) {
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "Only 2 stations can be pinned to the widget \u2014 unpin one first",
+                                            android.widget.Toast.LENGTH_SHORT
+                                        ).show()
+                                    } else {
+                                        stations = stations.map {
+                                            if (it.id == station.id) it.copy(starred = !it.starred) else it
+                                        }
+                                        RaccoonRadioWidgetProvider.refreshAll(context)
+                                    }
                                 }
                             )
                         } else {

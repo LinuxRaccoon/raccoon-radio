@@ -14,5 +14,9 @@ data class RadioStation(
     // reflection, bypassing the constructor — stations saved before this field
     // existed will load with metadataUrl == null rather than triggering the
     // default. Always read it via .orEmpty() rather than assuming non-null.
-    val metadataUrl: String? = null
+    val metadataUrl: String? = null,
+    // Whether this station is pinned to the home-screen widget. Safe as a
+    // plain non-null Boolean (unlike metadataUrl above) because Gson leaves
+    // a missing primitive field at its JVM default (false) rather than null.
+    val starred: Boolean = false
 )

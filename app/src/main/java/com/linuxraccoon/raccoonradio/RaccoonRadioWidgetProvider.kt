@@ -80,7 +80,11 @@ class RaccoonRadioWidgetProvider : AppWidgetProvider() {
          * can only be told "here is a fully-decoded Bitmap".
          */
         private fun updateWidget(context: Context, manager: AppWidgetManager, widgetId: Int) {
-            val stations = StationStore.loadStations(context).take(BUTTON_IDS.size)
+            val allStations = StationStore.loadStations(context)
+            val starred = allStations.filter { it.starred }
+            // Falls back to the first two so the widget isn't blank for
+            // someone who hasn't starred anything yet (or just updated).
+            val stations = (starred.ifEmpty { allStations }).take(BUTTON_IDS.size)
             val playingId = StationStore.getPlayingStationId(context)
             val artUrl = StationStore.getCurrentArtUrl(context)
 

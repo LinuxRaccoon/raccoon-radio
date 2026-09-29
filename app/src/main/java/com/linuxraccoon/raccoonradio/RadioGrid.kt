@@ -15,6 +15,8 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -34,6 +36,7 @@ import coil.decode.SvgDecoder
 fun RadioCard(
     station: RadioStation,
     isEditingMode: Boolean,
+    starred: Boolean,
     showLeftArrow: Boolean,
     showRightArrow: Boolean,
     showUpArrow: Boolean,
@@ -45,6 +48,7 @@ fun RadioCard(
     onLongClick: () -> Unit,
     onCloseEditing: () -> Unit,
     onEditClick: () -> Unit,
+    onToggleStar: () -> Unit,
     onClick: () -> Unit
 ) {
     val placeholder = rememberVectorPainter(Icons.Default.Radio)
@@ -94,6 +98,15 @@ fun RadioCard(
                 )
             }
 
+            if (starred && !isEditingMode) {
+                Icon(
+                    Icons.Default.Star,
+                    contentDescription = "Pinned to widget",
+                    modifier = Modifier.align(Alignment.TopEnd).padding(4.dp).size(16.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
+
             if (isEditingMode) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
@@ -114,6 +127,18 @@ fun RadioCard(
                             modifier = Modifier.align(Alignment.TopEnd).padding(2.dp).size(22.dp)
                         ) {
                             Icon(Icons.Default.Close, null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+
+                        IconButton(
+                            onClick = onToggleStar,
+                            modifier = Modifier.align(Alignment.BottomStart).padding(2.dp).size(24.dp)
+                        ) {
+                            Icon(
+                                if (starred) Icons.Default.Star else Icons.Default.StarBorder,
+                                contentDescription = if (starred) "Remove from widget" else "Pin to widget",
+                                modifier = Modifier.size(16.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
                         }
 
                         if (showUpArrow) {
@@ -168,7 +193,8 @@ fun RadioGrid(
     stations: List<RadioStation>,
     onStationSelected: (RadioStation) -> Unit,
     onStationEditRequested: (RadioStation) -> Unit,
-    onStationsReordered: (List<RadioStation>) -> Unit
+    onStationsReordered: (List<RadioStation>) -> Unit,
+    onToggleStar: (RadioStation) -> Unit
 ) {
     val gridState = rememberLazyGridState()
     var activeEditingStationId by remember { mutableStateOf<Int?>(null) }
@@ -195,6 +221,7 @@ fun RadioGrid(
             RadioCard(
                 station = station,
                 isEditingMode = isCurrentCardEditing,
+                starred = station.starred,
                 showLeftArrow = index > 0,
                 showRightArrow = index < stations.lastIndex,
                 showUpArrow = index >= columnsCount,
@@ -236,6 +263,7 @@ fun RadioGrid(
                 onLongClick = { activeEditingStationId = station.id },
                 onCloseEditing = { activeEditingStationId = null },
                 onEditClick = { onStationEditRequested(station) },
+                onToggleStar = { onToggleStar(station) },
                 onClick = { onStationSelected(station) }
             )
         }
