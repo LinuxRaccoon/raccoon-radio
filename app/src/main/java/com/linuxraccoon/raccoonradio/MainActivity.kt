@@ -133,6 +133,7 @@ class MainActivity : ComponentActivity(), coil.ImageLoaderFactory {
                 var sleepTimerMinutes by remember { mutableIntStateOf(0) }
                 var showTimerDialog by remember { mutableStateOf(false) }
                 var showWakeTimerDialog by remember { mutableStateOf(false) }
+                var showHelpDialog by remember { mutableStateOf(false) }
                 var wakeTimerLabel by remember { mutableStateOf(formatWakeTimerLabel(context, stations)) }
 
                 val playbackStats by radioPlayer.playbackInfo.collectAsState()
@@ -291,6 +292,10 @@ class MainActivity : ComponentActivity(), coil.ImageLoaderFactory {
                     )
                 }
 
+                if (showHelpDialog) {
+                    HelpDialog(onDismiss = { showHelpDialog = false })
+                }
+
                 if (showAddDialog || stationToEdit != null) {
                     StationDialog(
                         initialStation = stationToEdit,
@@ -405,6 +410,17 @@ class MainActivity : ComponentActivity(), coil.ImageLoaderFactory {
                                     }
                                 }
                             )
+
+                            IconButton(
+                                onClick = { showHelpDialog = true },
+                                modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.HelpOutline,
+                                    contentDescription = "How this app works",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
                         } else {
                             SettingsScreen(
                                 isDarkMode = isDarkMode,

@@ -62,6 +62,7 @@ class RaccoonRadioWidgetProvider : AppWidgetProvider() {
         const val EXTRA_STATION_ID = "station_id"
         private const val TAG = "RaccoonRadioWidget"
         private const val ART_MAX_DIMENSION_PX = 300
+        private const val OPEN_APP_REQUEST_CODE = 9931
 
         private val BUTTON_IDS = listOf(R.id.widget_button_0, R.id.widget_button_1)
 
@@ -141,6 +142,14 @@ class RaccoonRadioWidgetProvider : AppWidgetProvider() {
                 )
                 views.setOnClickPendingIntent(buttonId, pendingIntent)
             }
+
+            val openAppIntent = PendingIntent.getActivity(
+                context,
+                OPEN_APP_REQUEST_CODE,
+                Intent(context, MainActivity::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            views.setOnClickPendingIntent(R.id.widget_art, openAppIntent)
 
             return views
         }
