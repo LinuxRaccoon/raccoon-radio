@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -602,17 +603,40 @@ fun SettingsScreen(
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
         ) {
             Column(modifier = Modifier.padding(16.dp)) {
-                val creditsText = "Raccoon Radio\n\n" +
-                        "A fork of Acoustic, originally created by TheNextAtlas " +
-                        "(formerly TheMetalShard) and the Steel Project, with thanks " +
-                        "to NexGenDriven. Licensed under the MIT License.\n\n" +
-                        "https://github.com/themetalshard/acoustic-radio"
+                val context = LocalContext.current
 
                 Text(
-                    text = creditsText,
+                    text = "Raccoon Radio\n\n" +
+                        "A fork of Acoustic, originally created by TheNextAtlas " +
+                        "(formerly TheMetalShard) and the Steel Project, with thanks " +
+                        "to NexGenDriven. Licensed under the MIT License.",
                     style = MaterialTheme.typography.bodyMedium,
                     lineHeight = 20.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Spacer(Modifier.height(12.dp))
+
+                Text(
+                    text = "View the original Acoustic project",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    textDecoration = TextDecoration.Underline,
+                    modifier = Modifier.clickable {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/themetalshard/acoustic-radio")))
+                    }
+                )
+
+                Spacer(Modifier.height(4.dp))
+
+                Text(
+                    text = "Fork Raccoon Radio on GitHub",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                    textDecoration = TextDecoration.Underline,
+                    modifier = Modifier.clickable {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/LinuxRaccoon/raccoon-radio")))
+                    }
                 )
             }
         }
